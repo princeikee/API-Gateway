@@ -3,7 +3,7 @@
 A full-stack API Gateway management dashboard built with React, Node.js, and Express.
 The project provides a clean admin interface for managing backend services, gateway routes, authentication, API keys, rate limits, cache rules, real-time request metrics, and runtime logs.
 
-## LOGIN WITH : user - Admin@example.com password Admin!123
+## LOGIN WITH : user - Admin@example.com/password : Admin!123
 
 The app includes two modes:
 
