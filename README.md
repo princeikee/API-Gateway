@@ -618,16 +618,15 @@ Future improvements can include:
 
 ## Screenshots
 
+Dashboard 
+<img width="1366" height="768" alt="Screenshot (219)" src="https://github.com/user-attachments/assets/256dae2e-8ad4-4ea8-8a64-54c7d76b806b" />
+Cache Management
+<img width="1366" height="768" alt="Screenshot (223)" src="https://github.com/user-attachments/assets/da719437-ebcc-4919-b1fa-9497bcf09a5f" />
+service/routes
+<img width="1366" height="768" alt="Screenshot (222)" src="https://github.com/user-attachments/assets/1ca7ef19-3833-4e8c-95b0-fe7b7bafef88" />
+logs
+<img width="1366" height="768" alt="Screenshot (221)" src="https://github.com/user-attachments/assets/1335b65d-c9d0-434f-a472-2133e2845b4d" />
 
-```md
-![Dashboard Screenshot](./screenshots/dashboard.png)
-![Cache Screenshot](./screenshots/cache.png)<img width="1366" height="768" alt="Screenshot (219)" src="https://github.com/user-attachments/assets/eaa45282-6d61-48b8-ad14-8a6b0b36ee03" />
-<img width="1366" height="768" alt="Screenshot (223)" src="https://github.com/user-attachments/assets/c8532ca9-bb4e-4d70-9f92-f096c92cf52d" />
-<img width="1366" height="768" alt="Screenshot (222)" src="https://github.com/user-attachments/assets/32d8d3ab-a358-48a3-a3e9-b83445ffb8e6" />
-<img width="1366" height="768" alt="Screenshot (221)" src="https://github.com/user-attachments/assets/64fc7148-d95b-4581-98d7-8f2015ae20fe" />
-
-![Logs Screenshot](./screenshots/logs.png)
-```
 
 ---
 
