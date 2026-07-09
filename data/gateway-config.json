@@ -1,0 +1,84 @@
+{
+  "services": [
+    {
+      "id": "service-1783428457853-he00b0",
+      "name": "Local Gateway Backend",
+      "url": "http://localhost:5000",
+      "timeoutMs": 10000,
+      "createdAt": "2026-07-07T12:47:37.853Z"
+    },
+    {
+      "id": "service-1783428909898-yfwpnr",
+      "name": "JSONPlaceholder API",
+      "url": "https://jsonplaceholder.typicode.com",
+      "timeoutMs": 10000,
+      "createdAt": "2026-07-07T12:55:09.898Z"
+    }
+  ],
+  "routes": [
+    {
+      "id": "route-1783428484841-02r6wt",
+      "path": "/users/*",
+      "service": "service-1783428457853-he00b0",
+      "methods": [
+        "GET"
+      ],
+      "auth": false,
+      "rateLimit": false,
+      "cache": false,
+      "status": "active",
+      "kind": "gateway",
+      "createdAt": "2026-07-07T12:48:04.841Z"
+    },
+    {
+      "id": "route-1783428939450-hkjqbq",
+      "path": "/json/*",
+      "service": "service-1783428909898-yfwpnr",
+      "methods": [
+        "GET"
+      ],
+      "auth": false,
+      "rateLimit": false,
+      "cache": false,
+      "status": "active",
+      "kind": "gateway",
+      "createdAt": "2026-07-07T12:55:39.450Z"
+    }
+  ],
+  "apiKeys": [
+    {
+      "id": "key-1783429955263-urcjnk",
+      "name": "Portfolio Demo Key",
+      "prefix": "gw_live_fCAF",
+      "maskedKey": "gw_live_fCAF...9kdq",
+      "hash": "66f46e3cfeb2327791e4fc3245afd4985293c00a5c0167a610fb322ddb120b59",
+      "requests": 0,
+      "createdAt": "2026-07-07T13:12:35.263Z",
+      "lastUsedAt": null
+    }
+  ],
+  "rateLimits": [
+    {
+      "id": "limit-1783430289021-f23ncl",
+      "name": "/json/* limit",
+      "routeId": "route-1783428939450-hkjqbq",
+      "path": "/json/*",
+      "maxRequests": 5,
+      "windowSeconds": 60,
+      "status": "active",
+      "createdAt": "2026-07-07T13:18:09.021Z"
+    }
+  ],
+  "cacheRules": [
+    {
+      "id": "cache-1783612868081-wk0jsz",
+      "name": "/users/* cache",
+      "routeId": "route-1783428484841-02r6wt",
+      "path": "/users/*",
+      "ttlSeconds": 300,
+      "type": "private",
+      "status": "active",
+      "createdAt": "2026-07-09T16:01:08.081Z"
+    }
+  ]
+}
