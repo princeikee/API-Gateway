@@ -399,9 +399,21 @@ function RealDashboard({ token, admin, onLogout }) {
     setModal(null);
   }
 
+  async function handleDeleteService(id) {
+    const confirmed = window.confirm("Delete this service? This also removes routes, rate limits, and cache rules linked to it.");
+    if (!confirmed) return;
+    await deleteProtected(`/services/${id}`);
+  }
+
   async function handleCreateRoute(values) {
     await postProtected("/routes", values);
     setModal(null);
+  }
+
+  async function handleDeleteRoute(id) {
+    const confirmed = window.confirm("Delete this route? This also removes rate limits and cache rules linked to it.");
+    if (!confirmed) return;
+    await deleteProtected(`/routes/${id}`);
   }
 
   async function handleCreateApiKey(values) {
@@ -464,8 +476,8 @@ function RealDashboard({ token, admin, onLogout }) {
                   isReal
                 />
               )}
-              {activeTab === "services" && <Services services={gatewayState.services} onAddService={capabilities.services?.create ? () => setModal("service") : null} />}
-              {activeTab === "routes" && <Routes routes={gatewayState.routes} serviceById={serviceById} onAddRoute={capabilities.routes?.create ? () => setModal("route") : null} />}
+              {activeTab === "services" && <Services services={gatewayState.services} onAddService={capabilities.services?.create ? () => setModal("service") : null} onDeleteService={capabilities.services?.delete ? handleDeleteService : null} />}
+              {activeTab === "routes" && <Routes routes={gatewayState.routes} serviceById={serviceById} onAddRoute={capabilities.routes?.create ? () => setModal("route") : null} onDeleteRoute={capabilities.routes?.delete ? handleDeleteRoute : null} />}
               {activeTab === "auth" && (
                 <Authentication
                   methods={gatewayState.authMethods}
@@ -557,11 +569,14 @@ function decodeJwtPayload(token) {
   }
 }
 
-function buildGatewayUrl(path) {
+function buildGatewayUrl(path, { testPath = true } = {}) {
   const fallbackApiBase = typeof window !== "undefined" ? `${window.location.origin}/api` : "/api";
   const apiBase = (API_BASE_URL || fallbackApiBase).replace(/\/+$/, "");
   const gatewayBase = apiBase.replace(/\/api$/i, "");
-  return `${gatewayBase}/gateway${path}`;
+  const routePath = String(path || "").trim();
+  const normalizedPath = routePath.startsWith("/") ? routePath : `/${routePath}`;
+  const forwardedPath = testPath ? normalizedPath.replace(/\/?\*$/, "/1") : normalizedPath;
+  return `${gatewayBase}/gateway${forwardedPath}`;
 }
 
 function GatewayDemoApp() {
@@ -911,7 +926,7 @@ function TopRoutes({ routes }) {
   );
 }
 
-function Services({ services, onAddService }) {
+function Services({ services, onAddService, onDeleteService }) {
   const [query, setQuery] = useState("");
   const filteredServices = useMemo(() => services.filter((service) => {
     const text = `${service.name} ${service.url} ${service.health}`.toLowerCase();
@@ -934,22 +949,33 @@ function Services({ services, onAddService }) {
         {!!services.length && !filteredServices.length && <div className="md:col-span-2 xl:col-span-3"><EmptyState title="No services match" text="Try a different service name, URL, or status." /></div>}
         {filteredServices.map((service) => {
           const health = healthClasses(service.health);
+          const canDelete = onDeleteService && service.kind !== "system";
           return (
             <article key={service.id} className="glass-panel rounded-lg p-5 transition hover:border-accent-cyan/30">
               <div className="mb-4 flex items-start justify-between gap-4">
                 <div className="rounded-lg bg-slate-800 p-3 text-accent-cyan">
                   <Server className="h-6 w-6" aria-hidden="true" />
                 </div>
-                <span className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${health.bg} ${health.text}`}>
-                  {service.health}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${health.bg} ${health.text}`}>
+                    {service.health}
+                  </span>
+                  {canDelete && (
+                    <button type="button" className="icon-button min-h-9 min-w-9 hover:text-accent-rose" onClick={() => onDeleteService(service.id)} aria-label={`Delete ${service.name}`}>
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
               </div>
               <h4 className="font-semibold">{service.name}</h4>
               <p className="mt-1 break-all text-sm text-slate-400">{service.url}</p>
               <div className="mt-4 grid grid-cols-2 gap-4 border-t border-slate-800 pt-4">
-                <Stat label="Requests" value={service.requests.toLocaleString()} />
-                <Stat label="Latency" value={`${Math.round(service.latency)}ms`} />
+                <Stat label="Requests" value={(service.requests || 0).toLocaleString()} />
+                <Stat label="Latency" value={`${Math.round(service.latency || 0)}ms`} />
               </div>
+              {canDelete && (
+                <p className="mt-4 text-xs text-slate-500">Deleting this service also removes every gateway route, cache rule, and rate limit attached to it.</p>
+              )}
             </article>
           );
         })}
@@ -958,7 +984,19 @@ function Services({ services, onAddService }) {
   );
 }
 
-function Routes({ routes, serviceById, onAddRoute }) {
+function Routes({ routes, serviceById, onAddRoute, onDeleteRoute }) {
+  const orderedRoutes = useMemo(() => {
+    return [...routes].sort((a, b) => {
+      if (a.kind === "system" && b.kind !== "system") return 1;
+      if (a.kind !== "system" && b.kind === "system") return -1;
+
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+
+      return bTime - aTime;
+    });
+  }, [routes]);
+
   return (
     <section className="glass-panel overflow-hidden rounded-lg">
       <div className="flex flex-col gap-3 border-b border-slate-800 p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -968,60 +1006,85 @@ function Routes({ routes, serviceById, onAddRoute }) {
       {!routes.length && <div className="p-5"><EmptyState title="No routes configured" text="Create a gateway route after adding an upstream service." /></div>}
       {!!routes.length && (
         <div className="space-y-3 p-4 md:hidden">
-          {routes.map((route) => (
-            <article key={route.id} className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <code className="break-all text-sm text-accent-cyan">{route.path}</code>
-                <RouteStatus status={route.status} />
-              </div>
-              <div className="space-y-3 text-sm">
-                <RouteGatewayUrl path={route.path} />
-                <div>
-                  <p className="text-xs text-slate-500">Service</p>
-                  <p className="mt-1 text-slate-300">{serviceById[route.service]?.name || route.service}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500">Methods</p>
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {route.methods.map((method) => <span key={method} className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-400">{method}</span>)}
+          {orderedRoutes.map((route) => {
+            const canDelete = onDeleteRoute && route.kind !== "system";
+            return (
+              <article key={route.id} className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs text-slate-500">Route pattern</p>
+                    <code className="mt-1 block break-all text-sm text-accent-cyan">{route.path}</code>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <RouteStatus status={route.status} />
+                    {canDelete && (
+                      <button type="button" className="icon-button min-h-9 min-w-9 hover:text-accent-rose" onClick={() => onDeleteRoute(route.id)} aria-label={`Delete ${route.path}`}>
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3 border-t border-slate-800 pt-3">
-                  <Stat label="Latency" value={`${route.avgLatency}ms`} />
-                  <Stat label="Requests" value={route.requests.toLocaleString()} />
+                <div className="space-y-3 text-sm">
+                  <RouteGatewayUrl path={route.path} />
+                  <div>
+                    <p className="text-xs text-slate-500">Service</p>
+                    <p className="mt-1 text-slate-300">{serviceById[route.service]?.name || route.service}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">Methods</p>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {route.methods.map((method) => <span key={method} className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-400">{method}</span>)}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 border-t border-slate-800 pt-3">
+                    <Stat label="Latency" value={`${route.avgLatency}ms`} />
+                    <Stat label="Requests" value={route.requests.toLocaleString()} />
+                  </div>
                 </div>
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       )}
       {!!routes.length && (
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[840px]">
-          <thead className="bg-slate-900/50">
-            <tr>
-              {["Route", "Gateway URL", "Service", "Methods", "Status", "Latency"].map((heading) => (
-                <th key={heading} className="px-5 py-4 text-left text-sm font-medium text-slate-400">{heading}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800">
-            {routes.map((route) => (
-              <tr key={route.id} className="transition hover:bg-slate-800/50">
-                <td className="px-5 py-4"><code className="text-sm text-accent-cyan">{route.path}</code></td>
-                <td className="px-5 py-4"><RouteGatewayUrl path={route.path} compact /></td>
-                <td className="px-5 py-4 text-sm">{serviceById[route.service]?.name || route.service}</td>
-                <td className="px-5 py-4">
-                  <div className="flex flex-wrap gap-1">
-                    {route.methods.map((method) => <span key={method} className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-400">{method}</span>)}
-                  </div>
-                </td>
-                <td className="px-5 py-4"><RouteStatus status={route.status} /></td>
-                <td className="px-5 py-4 text-sm">{route.avgLatency}ms</td>
+          <table className="w-full min-w-[980px]">
+            <thead className="bg-slate-900/50">
+              <tr>
+                {["Route Pattern", "Test URL", "Service", "Methods", "Status", "Latency", "Actions"].map((heading) => (
+                  <th key={heading} className="px-5 py-4 text-left text-sm font-medium text-slate-400">{heading}</th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {orderedRoutes.map((route) => {
+                const canDelete = onDeleteRoute && route.kind !== "system";
+                return (
+                  <tr key={route.id} className="transition hover:bg-slate-800/50">
+                    <td className="px-5 py-4"><code className="text-sm text-accent-cyan">{route.path}</code></td>
+                    <td className="px-5 py-4"><RouteGatewayUrl path={route.path} compact /></td>
+                    <td className="px-5 py-4 text-sm">{serviceById[route.service]?.name || route.service}</td>
+                    <td className="px-5 py-4">
+                      <div className="flex flex-wrap gap-1">
+                        {route.methods.map((method) => <span key={method} className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-400">{method}</span>)}
+                      </div>
+                    </td>
+                    <td className="px-5 py-4"><RouteStatus status={route.status} /></td>
+                    <td className="px-5 py-4 text-sm">{route.avgLatency}ms</td>
+                    <td className="px-5 py-4">
+                      {canDelete ? (
+                        <button type="button" className="icon-button min-h-9 min-w-9 hover:text-accent-rose" onClick={() => onDeleteRoute(route.id)} aria-label={`Delete ${route.path}`}>
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-600">System</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </section>
@@ -1044,12 +1107,21 @@ function RouteGatewayUrl({ path, compact = false }) {
 
   return (
     <div className={compact ? "max-w-xs" : ""}>
-      {!compact && <p className="text-xs text-slate-500">Gateway URL</p>}
+      {!compact && (
+        <div className="space-y-1">
+          <p className="text-xs text-slate-500">Route pattern</p>
+          <code className="block break-all rounded bg-slate-950 px-2 py-1 text-xs text-accent-cyan">{path}</code>
+          <p className="text-xs text-slate-500">Test URL</p>
+        </div>
+      )}
       <div className="mt-1 flex min-w-0 items-center gap-2">
         <code className="min-w-0 truncate rounded bg-slate-950 px-2 py-1 text-xs text-slate-300">{url}</code>
         <button type="button" className="icon-button min-h-9 min-w-9 shrink-0" onClick={handleCopy} aria-label={`Copy ${url}`}>
           <Copy className="h-4 w-4" aria-hidden="true" />
         </button>
+        <a className="icon-button min-h-9 min-w-9 shrink-0 text-xs" href={url} target="_blank" rel="noreferrer" aria-label={`Open ${url}`}>
+          Open
+        </a>
       </div>
       {copied && <p className="mt-1 text-xs text-accent-emerald">Copied</p>}
     </div>

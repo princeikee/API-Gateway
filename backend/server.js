@@ -27,8 +27,8 @@ const systemRoutes = [
   { id: "route-login", path: "/api/auth/login", service: "gateway-backend", methods: ["POST"], auth: false, rateLimit: false, cache: false, requests: 0, avgLatency: 0, errors: 0, status: "active", kind: "system" },
   { id: "route-me", path: "/api/auth/me", service: "gateway-backend", methods: ["GET"], auth: true, rateLimit: false, cache: false, requests: 0, avgLatency: 0, errors: 0, status: "active", kind: "system" },
   { id: "route-state", path: "/api/gateway/state", service: "gateway-backend", methods: ["GET"], auth: true, rateLimit: false, cache: false, requests: 0, avgLatency: 0, errors: 0, status: "active", kind: "system" },
-  { id: "route-services", path: "/api/services", service: "gateway-backend", methods: ["GET", "POST"], auth: true, rateLimit: false, cache: false, requests: 0, avgLatency: 0, errors: 0, status: "active", kind: "system" },
-  { id: "route-routes", path: "/api/routes", service: "gateway-backend", methods: ["GET", "POST"], auth: true, rateLimit: false, cache: false, requests: 0, avgLatency: 0, errors: 0, status: "active", kind: "system" },
+  { id: "route-services", path: "/api/services", service: "gateway-backend", methods: ["GET", "POST", "DELETE"], auth: true, rateLimit: false, cache: false, requests: 0, avgLatency: 0, errors: 0, status: "active", kind: "system" },
+  { id: "route-routes", path: "/api/routes", service: "gateway-backend", methods: ["GET", "POST", "DELETE"], auth: true, rateLimit: false, cache: false, requests: 0, avgLatency: 0, errors: 0, status: "active", kind: "system" },
   { id: "route-api-keys", path: "/api/api-keys", service: "gateway-backend", methods: ["GET", "POST", "DELETE"], auth: true, rateLimit: false, cache: false, requests: 0, avgLatency: 0, errors: 0, status: "active", kind: "system" },
   { id: "route-rate-limits", path: "/api/rate-limits", service: "gateway-backend", methods: ["GET", "POST", "DELETE"], auth: true, rateLimit: false, cache: false, requests: 0, avgLatency: 0, errors: 0, status: "active", kind: "system" },
   { id: "route-cache-rules", path: "/api/cache-rules", service: "gateway-backend", methods: ["GET", "POST", "DELETE"], auth: true, rateLimit: false, cache: false, requests: 0, avgLatency: 0, errors: 0, status: "active", kind: "system" },
@@ -40,8 +40,8 @@ const authMethods = [
 ];
 
 const capabilities = {
-  services: { create: true, update: false, delete: false },
-  routes: { create: true, update: false, delete: false },
+  services: { create: true, update: false, delete: true },
+  routes: { create: true, update: false, delete: true },
   apiKeys: { create: true, update: false, delete: true },
   rateLimits: { create: true, update: false, delete: true },
   cacheRules: { create: true, update: false, delete: true },
@@ -784,6 +784,37 @@ app.post("/api/services", requireAuth, async (req, res) => {
   }
 });
 
+app.delete("/api/services/:id", requireAuth, async (req, res) => {
+  const service = gatewayConfig.services.find((item) => item.id === req.params.id);
+
+  if (!service) {
+    return res.status(404).json({ message: "Service not found" });
+  }
+
+  const linkedRoutes = gatewayConfig.routes.filter((route) => route.service === req.params.id);
+  const linkedRouteIds = new Set(linkedRoutes.map((route) => route.id));
+
+  gatewayConfig.services = gatewayConfig.services.filter((item) => item.id !== req.params.id);
+  gatewayConfig.routes = gatewayConfig.routes.filter((route) => route.service !== req.params.id);
+  gatewayConfig.rateLimits = gatewayConfig.rateLimits.filter((rule) => !linkedRouteIds.has(rule.routeId));
+  gatewayConfig.cacheRules = gatewayConfig.cacheRules.filter((rule) => !linkedRouteIds.has(rule.routeId));
+
+  serviceRuntime.delete(req.params.id);
+  linkedRouteIds.forEach((routeId) => routeRuntime.delete(routeId));
+
+  for (const [bucketKey, bucket] of rateLimitBuckets.entries()) {
+    if (linkedRouteIds.has(bucket.ruleId)) rateLimitBuckets.delete(bucketKey);
+  }
+
+  for (const [cacheKey, entry] of responseCache.entries()) {
+    if (linkedRouteIds.has(entry.ruleId)) responseCache.delete(cacheKey);
+  }
+
+  await saveConfig();
+  writeLog("INFO", "Gateway", `Service deleted: ${service.name}`);
+  return res.status(204).send();
+});
+
 app.get("/api/routes", requireAuth, (_req, res) => {
   res.json({ routes: allRoutes().map(routeWithRuntime) });
 });
@@ -791,7 +822,7 @@ app.get("/api/routes", requireAuth, (_req, res) => {
 app.post("/api/routes", requireAuth, async (req, res) => {
   try {
     const route = sanitizeRoute(req.body || {});
-    gatewayConfig.routes.push(route);
+    gatewayConfig.routes.unshift(route);
     routeRuntime.set(route.id, { requests: 0, errors: 0, avgLatency: 0 });
     await saveConfig();
     writeLog("INFO", "Gateway", `Route added: ${route.path}`);
@@ -799,6 +830,32 @@ app.post("/api/routes", requireAuth, async (req, res) => {
   } catch (err) {
     return res.status(400).json({ message: err.message });
   }
+});
+
+app.delete("/api/routes/:id", requireAuth, async (req, res) => {
+  const route = gatewayConfig.routes.find((item) => item.id === req.params.id);
+
+  if (!route) {
+    return res.status(404).json({ message: "Route not found" });
+  }
+
+  gatewayConfig.routes = gatewayConfig.routes.filter((item) => item.id !== req.params.id);
+  gatewayConfig.rateLimits = gatewayConfig.rateLimits.filter((rule) => rule.routeId !== req.params.id);
+  gatewayConfig.cacheRules = gatewayConfig.cacheRules.filter((rule) => rule.routeId !== req.params.id);
+
+  routeRuntime.delete(req.params.id);
+
+  for (const [bucketKey, bucket] of rateLimitBuckets.entries()) {
+    if (bucket.ruleId === req.params.id) rateLimitBuckets.delete(bucketKey);
+  }
+
+  for (const [cacheKey, entry] of responseCache.entries()) {
+    if (entry.ruleId === req.params.id) responseCache.delete(cacheKey);
+  }
+
+  await saveConfig();
+  writeLog("INFO", "Gateway", `Route deleted: ${route.path}`);
+  return res.status(204).send();
 });
 
 app.get("/api/api-keys", requireAuth, (_req, res) => {
